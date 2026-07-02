@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { saveRecording } from '../db'
 
 const questions: Record<string, string[]> = {
   random: [
@@ -31,66 +32,141 @@ const questions: Record<string, string[]> = {
   ],
 }
 
+function formatTime(seconds: number): string {
+  const m = Math.floor(seconds / 60).toString().padStart(2, '0')
+  const s = (seconds % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
+}
+
+// Generate a unique session ID
+function generateSessionId(): string {
+  return `session_${Date.now()}`
+}
+
 function Session() {
   const location = useLocation()
   const navigate = useNavigate()
-  const { questionSet, cameraPreview } = location.state ?? { questionSet: 'random', cameraPreview: false }
+  const { questionSet, cameraEnabled } = location.state ?? { questionSet: 'random', cameraEnabled: false }
   const sessionQuestions: string[] = questions[questionSet] ?? questions.random
 
-  // Track which question we're on
   const [currentIndex, setCurrentIndex] = useState(0)
   const [isSpeaking, setIsSpeaking] = useState(false)
+  const [timer, setTimer] = useState(0)
+  const [isSaving, setIsSaving] = useState(false)
 
-  // Reference to the video element in the DOM
   const videoRef = useRef<HTMLVideoElement>(null)
+  const streamRef = useRef<MediaStream | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const chunksRef = useRef<Blob[]>([])
+  const sessionIdRef = useRef<string>(generateSessionId())
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const currentQuestion = sessionQuestions[currentIndex]
   const isLastQuestion = currentIndex === sessionQuestions.length - 1
 
-  // ── Camera setup ──────────────────────────────────────────────
+  // ── Camera + recording setup on mount ────────────────────────
   useEffect(() => {
-    let stream: MediaStream
-
-    async function startCamera() {
+    async function startSession() {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+        streamRef.current = stream
+
         if (videoRef.current) {
           videoRef.current.srcObject = stream
+          await videoRef.current.play()
         }
+
+        // Start recording immediately
+        startRecording(stream)
+
+        // Start timer
+        timerRef.current = setInterval(() => {
+          setTimer(prev => prev + 1)
+        }, 1000)
+
       } catch (err) {
-        console.error('Camera access denied:', err)
+        console.error('Camera/mic access denied:', err)
       }
     }
 
-    startCamera()
+    startSession()
 
-    // Cleanup: stop the camera when the user leaves the page
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop())
-      }
+      streamRef.current?.getTracks().forEach(track => track.stop())
+      if (timerRef.current) clearInterval(timerRef.current)
+      window.speechSynthesis.cancel()
     }
   }, [])
 
+  // ── Speak question when index changes ────────────────────────
+  useEffect(() => {
+    speakQuestion(currentQuestion)
+  }, [currentIndex])
+
   // ── Text-to-speech ────────────────────────────────────────────
   function speakQuestion(text: string) {
-    window.speechSynthesis.cancel() // stop anything already speaking
+    window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.onstart = () => setIsSpeaking(true)
     utterance.onend = () => setIsSpeaking(false)
     window.speechSynthesis.speak(utterance)
   }
 
-  // Speak automatically when the question changes
-  useEffect(() => {
-    speakQuestion(currentQuestion)
-  }, [currentIndex])
+  // ── Start a fresh MediaRecorder for each question ─────────────
+  function startRecording(stream: MediaStream) {
+    chunksRef.current = []
+    const recorder = new MediaRecorder(stream)
+    mediaRecorderRef.current = recorder
 
-  function handleNext() {
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) chunksRef.current.push(e.data)
+    }
+
+    recorder.start()
+  }
+
+  // ── Stop current recording and save it to IndexedDB ───────────
+  async function stopAndSave(questionText: string, questionIndex: number): Promise<void> {
+    return new Promise((resolve) => {
+      const recorder = mediaRecorderRef.current
+      if (!recorder || recorder.state === 'inactive') {
+        resolve()
+        return
+      }
+
+      recorder.onstop = async () => {
+        const blob = new Blob(chunksRef.current, { type: 'video/webm' })
+        await saveRecording({
+          question: questionText,
+          blob,
+          timestamp: Date.now(),
+          questionIndex,
+          sessionId: sessionIdRef.current,
+        })
+        resolve()
+      }
+
+      recorder.stop()
+    })
+  }
+
+  // ── Handle moving to next question or finishing ───────────────
+  async function handleNext() {
+    setIsSaving(true)
+
+    // Save the current question's recording
+    await stopAndSave(currentQuestion, currentIndex)
+
     if (isLastQuestion) {
-      navigate('/review')
+      if (timerRef.current) clearInterval(timerRef.current)
+      navigate('/review', {
+        state: { sessionId: sessionIdRef.current }
+      })
     } else {
+      // Start a fresh recording for the next question
+      if (streamRef.current) startRecording(streamRef.current)
       setCurrentIndex(prev => prev + 1)
+      setIsSaving(false)
     }
   }
 
@@ -101,9 +177,10 @@ function Session() {
       {/* Header */}
       <header className="px-8 py-4 border-b border-gray-800 flex items-center justify-between">
         <h1 className="text-xl font-bold tracking-tight">Intervu</h1>
-        <span className="text-gray-400 text-sm">
-          Question {currentIndex + 1} of {sessionQuestions.length}
-        </span>
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+          <span className="text-red-400 font-mono text-sm">{formatTime(timer)}</span>
+        </div>
         <button
           onClick={() => navigate('/')}
           className="text-sm text-gray-400 hover:text-white transition-colors"
@@ -117,23 +194,7 @@ function Session() {
         {/* Left Panel — Interviewer */}
         <div className="flex flex-col gap-6 w-1/2">
 
-          {/* Question display */}
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-col gap-4">
-            <span className="text-xs text-blue-400 font-semibold uppercase tracking-widest">
-              Question {currentIndex + 1}
-            </span>
-            <p className="text-lg font-medium leading-relaxed">
-              {currentQuestion}
-            </p>
-            <button
-              onClick={() => speakQuestion(currentQuestion)}
-              className="text-sm text-gray-400 hover:text-white transition-colors self-start"
-            >
-              🔁 Repeat question
-            </button>
-          </div>
-
-          {/* Waveform / Speaking indicator */}
+          {/* Waveform */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col items-center justify-center py-16 gap-6">
             <div className="flex items-end gap-1 h-16">
               {Array.from({ length: 12 }).map((_, i) => (
@@ -143,9 +204,7 @@ function Session() {
                     isSpeaking ? 'bg-blue-500' : 'bg-gray-700'
                   }`}
                   style={{
-                    height: isSpeaking
-                      ? `${Math.random() * 100}%`
-                      : '20%',
+                    height: isSpeaking ? `${Math.random() * 100}%` : '20%',
                   }}
                 />
               ))}
@@ -155,16 +214,28 @@ function Session() {
             </p>
           </div>
 
-          
+          {/* Question */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-col gap-4">
+            <span className="text-xs text-blue-400 font-semibold uppercase tracking-widest">
+              Question {currentIndex + 1} of {sessionQuestions.length}
+            </span>
+            <p className="text-lg font-medium leading-relaxed">{currentQuestion}</p>
+            <button
+              onClick={() => speakQuestion(currentQuestion)}
+              className="text-sm text-gray-400 hover:text-white transition-colors self-start"
+            >
+              🔁 Repeat question
+            </button>
+          </div>
 
         </div>
 
         {/* Right Panel — Candidate */}
         <div className="flex flex-col gap-6 w-1/2">
 
-          {/* Camera preview or placeholder */}
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden aspect-video flex items-center justify-center">
-            {cameraPreview ? (
+          {/* Camera preview */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden aspect-video flex items-center justify-center relative">
+            {cameraEnabled ? (
               <video
                 ref={videoRef}
                 autoPlay
@@ -173,16 +244,25 @@ function Session() {
                 className="w-full h-full object-cover"
               />
             ) : (
-              <p className="text-gray-600 text-sm">Camera preview off</p>
+              <div className="flex flex-col items-center gap-3 text-gray-600">
+                <span className="text-4xl">🎙️</span>
+                <p className="text-sm">Audio recording in progress</p>
+              </div>
             )}
+            {/* Always show recording indicator */}
+            <div className="absolute top-3 right-3 flex items-center gap-1.5 bg-black/60 px-2 py-1 rounded-full">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-xs text-red-400">REC</span>
+            </div>
           </div>
 
           {/* Next button */}
           <button
             onClick={handleNext}
-            className="w-full bg-blue-600 hover:bg-blue-500 transition-colors text-white font-semibold py-4 rounded-xl text-lg"
+            disabled={isSaving}
+            className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors text-white font-semibold py-4 rounded-xl text-lg"
           >
-            {isLastQuestion ? 'Finish Session' : 'Next Question →'}
+            {isSaving ? 'Saving...' : isLastQuestion ? 'Finish Session →' : 'Next Question →'}
           </button>
 
         </div>
