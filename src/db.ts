@@ -21,6 +21,7 @@ export async function saveRecording(recording: {
   timestamp: number
   questionIndex: number
   sessionId: string
+  transcript: string
 }) {
   const db = await getDB()
   await db.add(STORE_NAME, recording)
@@ -38,3 +39,26 @@ export async function getAllRecordings() {
   const db = await getDB()
   return db.getAll(STORE_NAME)
 }
+
+async function getAllSessions() {
+  const recordings = await getAllRecordings()
+
+  const sessionMap = new Map<string, { sessionId: string; timestamp: number; count: number }>()
+
+  for (const rec of recordings) {
+    const existing = sessionMap.get(rec.sessionId)
+    if (!existing) {
+      sessionMap.set(rec.sessionId, {
+        sessionId: rec.sessionId,
+        timestamp: rec.timestamp,
+        count: 1,
+      })
+    } else {
+      existing.count += 1
+      existing.timestamp = Math.min(existing.timestamp, rec.timestamp) // earliest recording in session
+    }
+  }
+
+  return Array.from(sessionMap.values()).sort((a, b) => b.timestamp - a.timestamp) // newest first
+}
+

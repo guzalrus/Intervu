@@ -32,6 +32,15 @@ const questions: Record<string, string[]> = {
   ],
 }
 
+declare global {
+  interface Window {
+    webkitSpeechRecognition: any
+    SpeechRecognition: any
+  }
+}
+
+
+
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
   const s = (seconds % 60).toString().padStart(2, '0')
@@ -60,6 +69,8 @@ function Session() {
   const chunksRef = useRef<Blob[]>([])
   const sessionIdRef = useRef<string>(generateSessionId())
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const recognitionRef = useRef<any>(null)
+  const transcriptRef = useRef<string>('')
 
   const currentQuestion = sessionQuestions[currentIndex]
   const isLastQuestion = currentIndex === sessionQuestions.length - 1
@@ -123,6 +134,24 @@ function Session() {
     }
 
     recorder.start()
+
+    // Transcribe speech alongside recording
+    transcriptRef.current = ''
+    const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition
+    const recognition = new SpeechRecognitionClass()
+    recognition.continuous = true
+    recognition.interimResults = true
+
+    recognition.onresult = (event: any) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          transcriptRef.current += event.results[i][0].transcript + ' '
+        }
+      }
+    }
+
+    recognitionRef.current = recognition
+    recognition.start()
   }
 
   // ── Stop current recording and save it to IndexedDB ───────────
@@ -134,6 +163,11 @@ function Session() {
         return
       }
 
+      // stop speech recognition
+      if (recognitionRef.current) {
+        recognitionRef.current.stop()
+      }
+
       recorder.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: 'video/webm' })
         await saveRecording({
@@ -142,6 +176,7 @@ function Session() {
           timestamp: Date.now(),
           questionIndex,
           sessionId: sessionIdRef.current,
+          transcript: transcriptRef.current
         })
         resolve()
       }
@@ -159,9 +194,7 @@ function Session() {
 
     if (isLastQuestion) {
       if (timerRef.current) clearInterval(timerRef.current)
-      navigate('/review', {
-        state: { sessionId: sessionIdRef.current }
-      })
+      navigate(`/review/${sessionIdRef.current}`)
     } else {
       // Start a fresh recording for the next question
       if (streamRef.current) startRecording(streamRef.current)

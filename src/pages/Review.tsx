@@ -1,6 +1,8 @@
-import { useEffect, useState } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { getSessionRecordings } from '../db'
+import type { Highlight } from '../types/review'
+
 
 interface Recording {
   id: number
@@ -9,12 +11,87 @@ interface Recording {
   timestamp: number
   questionIndex: number
   sessionId: string
+  transcript: string
+}
+
+interface Segment {
+  text: string;
+  highlight?: Highlight; // undefined = plain text segment
+}
+
+
+function buildSegments(transcript: string, highlights: Highlight[]): Segment[] {
+  // Find match positions for each highlight, skip ones that don't match
+  const matches = highlights
+    .map(h => ({ highlight: h, index: transcript.indexOf(h.quote) }))
+    .filter(m => m.index !== -1)
+    .sort((a, b) => a.index - b.index); // left-to-right order
+
+  const segments: Segment[] = [];
+  let cursor = 0;
+
+  for (const match of matches) {
+    // skip overlapping matches (already covered by cursor)
+    if (match.index < cursor) continue;
+
+    // plain text before this highlight
+    if (match.index > cursor) {
+      segments.push({ text: transcript.slice(cursor, match.index) });
+    }
+
+    // the highlighted chunk itself
+    segments.push({
+      text: match.highlight.quote,
+      highlight: match.highlight,
+    });
+
+    cursor = match.index + match.highlight.quote.length;
+  }
+
+  // remaining plain text after the last highlight
+  if (cursor < transcript.length) {
+    segments.push({ text: transcript.slice(cursor) });
+  }
+
+  return segments;
+}
+
+function TranscriptWithHighlights({ transcript, highlights }: { transcript: string; highlights: Highlight[] }) {
+  const segments = useMemo(() => buildSegments(transcript, highlights), [transcript, highlights]);
+  const [activeComment, setActiveComment] = useState<string | null>(null);
+
+  return (
+    <div className="relative leading-relaxed">
+      {segments.map((seg, i) =>
+        seg.highlight ? (
+          <span
+            key={i}
+            onClick={() => setActiveComment(seg.highlight!.comment)}
+            className={
+              seg.highlight.type === "strength"
+                ? "bg-green-500/20 border-b-2 border-green-500 cursor-pointer"
+                : "bg-amber-500/20 border-b-2 border-amber-500 cursor-pointer"
+            }
+          >
+            {seg.text}
+          </span>
+        ) : (
+          <span key={i}>{seg.text}</span>
+        )
+      )}
+
+      {activeComment && (
+        <div className="mt-3 p-3 rounded bg-slate-800 text-sm">
+          {activeComment}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Review() {
-  const location = useLocation()
   const navigate = useNavigate()
-  const { sessionId } = location.state ?? {}
+  const { sessionId } = useParams<{ sessionId: string }>()
 
   const [recordings, setRecordings] = useState<Recording[]>([])
   const [selected, setSelected] = useState<Recording | null>(null)
