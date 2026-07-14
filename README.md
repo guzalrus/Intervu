@@ -27,8 +27,8 @@ An AI-powered behavioral interview practice app that simulates real interview co
 | Storage | IndexedDB (via `idb`) |
 | Recording | MediaRecorder API (browser-native) |
 | Speech | Web Speech API (browser-native) |
-| Backend | Go *(planned)* |
-| AI Feedback | Anthropic API *(planned)* |
+| Backend | TBD |
+| AI Feedback | TBD |
 
 ---
 
@@ -96,8 +96,4 @@ src/
 
 Intervu uses browser-native APIs for recording and speech. For best results use **Google Chrome** or **Microsoft Edge**. Firefox has limited support for the MediaRecorder API with video.
 
----
 
-## License
-
-MIT
