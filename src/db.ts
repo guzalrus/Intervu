@@ -40,9 +40,8 @@ export async function getAllRecordings() {
   return db.getAll(STORE_NAME)
 }
 
-async function getAllSessions() {
+export async function getAllSessions() {
   const recordings = await getAllRecordings()
-
   const sessionMap = new Map<string, { sessionId: string; timestamp: number; count: number }>()
 
   for (const rec of recordings) {
@@ -55,10 +54,10 @@ async function getAllSessions() {
       })
     } else {
       existing.count += 1
-      existing.timestamp = Math.min(existing.timestamp, rec.timestamp) // earliest recording in session
+      existing.timestamp = Math.min(existing.timestamp, rec.timestamp)
     }
   }
 
-  return Array.from(sessionMap.values()).sort((a, b) => b.timestamp - a.timestamp) // newest first
+  return Array.from(sessionMap.values()).sort((a, b) => b.timestamp - a.timestamp)
 }
 
