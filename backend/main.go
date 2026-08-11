@@ -6,6 +6,7 @@ import (
     "bytes"
     "encoding/json"
     "fmt"
+	"io"
     "log"
     "net/http"
     "os"
@@ -36,40 +37,11 @@ type ReviewResult struct {
     Highlights   []Highlight `json:"highlights"`
 }
 
-type groqRequest struct {
-    Model     string `json:"model"`
-    MaxTokens int    `json:"max_tokens"`
-    System    string `json:"system"`
-    Messages  []groqMessage `json:"messages"`
-}
 
-type groqMessage struct {
-    Role    string `json:"role"`
-    Content string `json:"content"`
-}
-
-func handleReview(w http.ResponseWriter, r *http.Request) {
-	var req ReviewRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request payload", http.StatusBadRequest)
-		return
-	}
-
-	result, err := callGroqForReview(req.Question, req.Transcript)
-	if err != nil {
-		log.Printf("review generation failed %v", err)
-		http.Error(w, "Failed to generate review", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
-}
 
 type groqRequest struct {
     Model     string          `json:"model"`
     MaxTokens int             `json:"max_tokens"`
-    System    string          `json:"system"`
     Messages  []groqMessage `json:"messages"`
 }
 
@@ -155,8 +127,8 @@ Only use quotes that appear word-for-word in the transcript.
 	reqBody := groqRequest{
 		Model:     "llama-3.3-70b-versatile",
 		MaxTokens: 1000,
-		System:    systemPrompt,
 		Messages: []groqMessage{
+			{Role: "system", Content: systemPrompt},
 			{Role: "user", Content: userMessage},
 		},
 	}
@@ -173,6 +145,10 @@ Only use quotes that appear word-for-word in the transcript.
 	}
 	defer resp.Body.Close()
 
+	bodyBytes2, _ := io.ReadAll(resp.Body)
+	log.Printf("Groq response status: %d", resp.StatusCode)
+	log.Printf("Groq response body: %s", string(bodyBytes2))
+
 	var groqResp struct {
 		Choices []struct {
 			Message struct {
@@ -180,7 +156,7 @@ Only use quotes that appear word-for-word in the transcript.
 			} `json:"message"`
 		} `json:"choices"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
+	if err := json.Unmarshal(bodyBytes2, &groqResp); err != nil {
 		return nil, fmt.Errorf("failed to decode groq response: %w", err)
 	}
 	if len(groqResp.Choices) == 0 {

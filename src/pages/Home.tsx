@@ -35,21 +35,18 @@ function Home() {
             to="/"
             className="flex items-center gap-3 py-3 px-4 rounded-lg font-semibold transition-colors border-l-4 border-[#486177] bg-[#eff4ff]"
           >
-            <span className="material-symbols-outlined">home</span>
             Home
           </Link>
           <Link
             to="/review"
             className="flex items-center gap-3 py-3 px-4 rounded-lg font-semibold transition-colors text-[#43474d] hover:bg-[#eff4ff]"
           >
-            <span className="material-symbols-outlined">history_edu</span>
             Review
           </Link>
           <Link
             to="/sessions"
             className="flex items-center gap-3 py-3 px-4 rounded-lg font-semibold transition-colors text-[#43474d] hover:bg-[#eff4ff]"
           >
-            <span className="material-symbols-outlined">video_call</span>
             Sessions
           </Link>
         </nav>
@@ -67,15 +64,12 @@ function Home() {
       {/* Mobile bottom nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-[#c3c6ce] flex justify-around py-3 px-4 z-50">
         <Link to="/" className="flex flex-col items-center">
-          <span className="material-symbols-outlined">home</span>
           <span className="text-[10px] font-semibold">Home</span>
         </Link>
         <Link to="/review" className="flex flex-col items-center text-[#43474d]">
-          <span className="material-symbols-outlined">history_edu</span>
           <span className="text-[10px] font-semibold">Review</span>
         </Link>
         <Link to="/sessions" className="flex flex-col items-center text-[#43474d]">
-          <span className="material-symbols-outlined">video_call</span>
           <span className="text-[10px] font-semibold">Sessions</span>
         </Link>
       </nav>
@@ -117,7 +111,6 @@ function Home() {
                           selectedSet === set.id ? 'opacity-100' : 'opacity-0'
                         }`}
                       >
-                        check_circle
                       </span>
                     </div>
                   </button>
