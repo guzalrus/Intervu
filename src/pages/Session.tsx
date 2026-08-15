@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { saveRecording } from '../db'
 
+
 const questions: Record<string, string[]> = {
   random: [
     'Tell me about a time you had to work with a difficult team member.',

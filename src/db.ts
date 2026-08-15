@@ -40,6 +40,17 @@ export async function getAllRecordings() {
   return db.getAll(STORE_NAME)
 }
 
+// Delete all recordings belonging to a session
+export async function deleteSession(sessionId: string) {
+  const db = await getDB()
+  const all = await db.getAll(STORE_NAME)
+  const toDelete = all.filter(r => r.sessionId === sessionId)
+
+  for (const rec of toDelete) {
+    await db.delete(STORE_NAME, rec.id)
+  }
+}
+
 export async function getAllSessions() {
   const recordings = await getAllRecordings()
   const sessionMap = new Map<string, { sessionId: string; timestamp: number; count: number }>()

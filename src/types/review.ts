@@ -5,9 +5,10 @@ export interface Highlight {
 }
 
 export interface ReviewResult {
-  overallScore: number;
+  score: number;
   summary: string;
   strengths: string[];
-  weaknesses: string[];
+  improvements: string[];
   highlights: Highlight[];
+  rewriteSuggestion: string;
 }

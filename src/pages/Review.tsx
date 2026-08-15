@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { getSessionRecordings } from '../db'
-import type { Highlight } from '../types/review'
+import { getSessionRecordings} from '../db'
+import type { Highlight, ReviewResult } from '../types/review'
 
 
 interface Recording {
@@ -89,6 +89,23 @@ function TranscriptWithHighlights({ transcript, highlights }: { transcript: stri
   );
 }
 
+
+async function fetchFeedback(question: string, transcript: string): Promise<ReviewResult> {
+  const response = await fetch('http://localhost:8080/api/review', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ question, transcript }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to fetch feedback')
+  }
+
+  return response.json()
+}
+
+
+
 function Review() {
   const navigate = useNavigate()
   const { sessionId } = useParams<{ sessionId: string }>()
@@ -97,6 +114,10 @@ function Review() {
   const [selected, setSelected] = useState<Recording | null>(null)
   const [videoUrl, setVideoUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const [feedbackCache, setFeedbackCache] = useState<Record<number, ReviewResult>>({})
+  const [feedbackLoading, setFeedbackLoading] = useState(false)
+  const [feedbackError, setFeedbackError] = useState<string | null>(null)
 
   // ── Load recordings from IndexedDB ────────────────────────────
   useEffect(() => {
@@ -129,6 +150,28 @@ function Review() {
     // Cleanup when component unmounts
     return () => URL.revokeObjectURL(url)
   }, [selected])
+
+  // Handles fetching feedback for the selected recording
+
+  async function handleAnalyze() {
+  if (!selected) return
+  if (feedbackCache[selected.id]) return // already have it cached
+
+  setFeedbackLoading(true)
+  setFeedbackError(null)
+
+  try {
+    const result = await fetchFeedback(selected.question, selected.transcript)
+    setFeedbackCache(prev => ({ ...prev, [selected.id]: result }))
+  } catch (err) {
+    console.error(err)
+    setFeedbackError('Could not generate feedback. Make sure the backend is running.')
+  } finally {
+    setFeedbackLoading(false)
+  }
+}
+
+
 
   // ── UI ────────────────────────────────────────────────────────
   if (loading) {
@@ -223,11 +266,101 @@ function Review() {
           </div>
 
           {/* Recorded at timestamp */}
-          {selected && (
-            <p className="text-gray-600 text-xs text-right">
-              Recorded at {new Date(selected.timestamp).toLocaleTimeString()}
+          {/* Recorded at timestamp */}
+{selected && (
+  <p className="text-gray-600 text-xs text-right">
+    Recorded at {new Date(selected.timestamp).toLocaleTimeString()}
+  </p>
+)}
+
+{/* AI Feedback Section */}
+{selected && (
+  <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex flex-col gap-4">
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-blue-400 font-semibold uppercase tracking-widest">
+        AI Feedback
+      </span>
+      {!feedbackCache[selected.id] && (
+        <button
+          onClick={handleAnalyze}
+          disabled={feedbackLoading}
+          className="text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors text-white font-medium px-4 py-2 rounded-lg"
+        >
+          {feedbackLoading ? 'Analyzing...' : 'Get AI Feedback'}
+        </button>
+      )}
+    </div>
+
+    {feedbackError && (
+      <p className="text-red-400 text-sm">{feedbackError}</p>
+    )}
+
+    {feedbackCache[selected.id] && (
+      <div className="flex flex-col gap-5">
+
+        {/* Score */}
+        <div className="flex items-center gap-4">
+          <div className="text-3xl font-bold text-blue-400">
+            {feedbackCache[selected.id].score}/10
+          </div>
+          <p className="text-gray-300 text-sm leading-relaxed">
+            {feedbackCache[selected.id].summary}
+          </p>
+        </div>
+
+        {/* Strengths */}
+        <div>
+          <p className="text-xs text-green-400 font-semibold uppercase tracking-widest mb-2">
+            Strengths
+          </p>
+          <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+            {(feedbackCache[selected.id].strengths ?? []).map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Improvements */}
+        <div>
+          <p className="text-xs text-amber-400 font-semibold uppercase tracking-widest mb-2">
+            Areas to Improve
+          </p>
+          <ul className="list-disc list-inside text-sm text-gray-300 space-y-1">
+            {(feedbackCache[selected.id].improvements ?? []).map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </div>
+
+        {/* Transcript with highlights */}
+        {selected.transcript && (
+          <div>
+            <p className="text-xs text-gray-400 font-semibold uppercase tracking-widest mb-2">
+              Your Transcript
             </p>
-          )}
+            <div className="text-sm text-gray-300 bg-gray-950 border border-gray-800 rounded-xl p-4">
+              <TranscriptWithHighlights
+                transcript={selected.transcript}
+                highlights={feedbackCache[selected.id].highlights ?? []}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* Rewrite suggestion */}
+        <div>
+          <p className="text-xs text-blue-400 font-semibold uppercase tracking-widest mb-2">
+            Suggested Rewrite
+          </p>
+          <p className="text-sm text-gray-300 leading-relaxed bg-gray-950 border border-gray-800 rounded-xl p-4">
+            {feedbackCache[selected.id].rewriteSuggestion}
+          </p>
+        </div>
+
+      </div>
+    )}
+  </div>
+)}
 
         </div>
       </main>
